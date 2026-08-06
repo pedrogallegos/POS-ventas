@@ -1,0 +1,25 @@
+name: vamo-pos
+
+services:
+  database:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POS_DB_NAME:-vamo_pos}
+      POSTGRES_USER: ${POS_DB_USER:-vamo_pos}
+      POSTGRES_PASSWORD: ${POS_DB_PASSWORD:-vamo_pos_dev}
+    ports:
+      - "${POS_DB_PORT:-5433}:5432"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U ${POS_DB_USER:-vamo_pos} -d ${POS_DB_NAME:-vamo_pos}
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    volumes:
+      - pos_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  pos_postgres_data:
