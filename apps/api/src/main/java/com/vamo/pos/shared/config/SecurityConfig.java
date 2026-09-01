@@ -1,5 +1,8 @@
 package com.vamo.pos.shared.config;
 
+import org.springframework.security.crypto.factory.PasswordEncoderFactories;
+import org.springframework.security.crypto.password.PasswordEncoder;
+
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.Customizer;
@@ -19,6 +22,17 @@ public class SecurityConfig {
                 .httpBasic(Customizer.withDefaults());
 
         return http.build();
+    }
+
+    /**
+     * Proporciona el algoritmo utilizado para proteger contraseñas.
+     * El encoder delegado agrega un identificador como {bcrypt} al hash.
+     * Eso permite cambiar el algoritmo posteriormente sin inutilizar
+     * las contraseñas que ya estén registradas.
+     */
+    @Bean
+    PasswordEncoder passwordEncoder() {
+        return PasswordEncoderFactories.createDelegatingPasswordEncoder();
     }
 }
 
