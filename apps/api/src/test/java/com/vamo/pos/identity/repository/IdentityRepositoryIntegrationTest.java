@@ -1,5 +1,11 @@
 package com.vamo.pos.identity.repository;
 
+import java.time.OffsetDateTime;
+
+import jakarta.persistence.EntityManager;
+
+import com.vamo.pos.identity.domain.AuthSession;
+
 import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -71,6 +77,11 @@ class IdentityRepositoryIntegrationTest {
     private UUID firstBranchId;
     private UUID secondBranchId;
 
+    @Autowired
+    private AuthSessionRepository authSessionRepository;
+
+    @Autowired
+    private EntityManager entityManager;
     /**
      * Prepara dos negocios independientes antes de cada prueba.
      * La transacción elimina estos datos automáticamente al terminar.
@@ -274,5 +285,75 @@ class IdentityRepositoryIntegrationTest {
                                         "CASHIER")
                                 .orElseThrow()
                                 .getId()));
+    }
+
+    @Test
+    void persistsSessionAndKeepsQueriesScopedToTenant() {
+        // La sesión necesita un usuario existente por su llave foránea.
+        AppUser user = appUserRepository.save(
+                new AppUser(
+                        firstTenantId,
+                        firstBranchId,
+                        "session-user",
+                        "Usuario de sesiones",
+                        "$2a$10$abcdefghijklmnopqrstuv1234567890",
+                        null));
+
+        // Fechas fijas para poder comparar exactamente los valores recuperados.
+        OffsetDateTime createdAt =
+                OffsetDateTime.parse("2026-09-08T12:00:00Z");
+        String tokenHash = "b".repeat(64);
+
+        AuthSession savedSession = authSessionRepository.save(
+                new AuthSession(
+                        firstTenantId,
+                        user.getId(),
+                        tokenHash,
+                        createdAt,
+                        createdAt.plusHours(1),
+                        "127.0.0.1",
+                        "Integration test"));
+
+        UUID sessionId = savedSession.getId();
+
+        // Ejecutamos los INSERT pendientes: aquí se verifican las restricciones SQL.
+        entityManager.flush();
+
+        // Quitamos las entidades de la caché para recuperarlas desde PostgreSQL.
+        entityManager.clear();
+
+        AuthSession loadedSession = authSessionRepository
+                .findByTenantIdAndId(firstTenantId, sessionId)
+                .orElseThrow();
+
+        assertAll(
+                // Verificamos datos recuperados, no solo que exista un resultado.
+                () -> assertEquals(user.getId(), loadedSession.getUserId()),
+                () -> assertEquals(tokenHash, loadedSession.getTokenHash()),
+                () -> assertEquals(
+                        createdAt.toInstant(),
+                        loadedSession.getCreatedAt().toInstant()),
+                () -> assertEquals(
+                        createdAt.plusHours(1).toInstant(),
+                        loadedSession.getExpiresAt().toInstant()),
+
+                // El negocio propietario también puede encontrarla por hash.
+                () -> assertEquals(
+                        sessionId,
+                        authSessionRepository
+                                .findByTenantIdAndTokenHash(firstTenantId, tokenHash)
+                                .orElseThrow()
+                                .getId()),
+
+                // El otro negocio no debe obtenerla por ID ni por hash.
+                () -> assertTrue(
+                        authSessionRepository
+                                .findByTenantIdAndId(secondTenantId, sessionId)
+                                .isEmpty()),
+                () -> assertTrue(
+                        authSessionRepository
+                                .findByTenantIdAndTokenHash(secondTenantId, tokenHash)
+                                .isEmpty())
+        );
     }
 }
